@@ -1,0 +1,279 @@
+#! /usr/bin/env python
+
+#
+# Write submit scripts for any arbitrary
+# python script 
+#
+
+import argparse
+import os.path
+import re
+import sys
+import shutil
+
+try:
+    from termcolors import colored
+except ImportError:
+    colored = lambda x, y: x
+
+try:
+    from progressbar import ProgressBar
+    #def pbar(x):
+    #    return ProgressBar()
+    pbar = ProgressBar()
+    #pbar = lambda x : ProgressBar()
+    lambda x:x
+except:
+    pbar = lambda x:x
+
+sys.path.append("/home/achim/nfs_home/scripts/devel/HTCTools/")
+
+from htctools.condor import write_submit_script, create_empty_props
+from htctools.utils import strip_file_ending, check_hdf_integrity, check_bz2_integrity
+from glob import glob
+
+
+def walker(indir, regex):
+    """
+    Walk the indir and indentify files by regex
+
+    Args:
+        indir (str): The directory to search the files with regex
+        regex (str): Filter files by this regex
+
+    Returns:
+        list
+    """
+
+    all_files = []
+    for subdir in os.walk(indir):
+        print subdir
+        if not subdir[1]:  # if at the end of the file tree
+            all_files += [os.path.join(subdir[0], i) for i in subdir[2]]
+
+    if regex:
+        pattern = re.compile(regex)
+        all_files = [i for i in all_files if re.search(pattern, i) is not None]
+    return all_files
+
+
+if __name__ == "__main__":
+
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-v", "--verbose", help="Print more output", default=False,\
+                        action="store_true")
+    subparsers = parser.add_subparsers(title="subcommands",\
+                                       help='Available subcommands',\
+                                       dest="commands")
+    write_parser = subparsers.add_parser('write', help='write submission scripts')
+    write_parser.add_argument("executable", default="", type=str, help="The full path to the executable")
+    write_parser.add_argument("--arguments", nargs="*", help="Additional arguments to the script", default=[])
+    write_parser.add_argument("--submitdir", type=str, default="", help="Savepath of resulting script")
+    write_parser.add_argument("-n","--njobs", type=int, default="1", help="Number of jobs to execute")
+    write_parser.add_argument("-i", "--input", type=str, default="", help="Folder/File with files. Write one submit script per file in this folder")
+    write_parser.add_argument("--file-ending", type=str, default="", help="Only select files with this ending")
+
+    count_parser = subparsers.add_parser('count', help='Count files in a directory')
+    count_parser.add_argument("indir", type=str, default="",
+                              help="Folder with files. Count all files underneath this root")
+    count_parser.add_argument("--regex", type=str, default="",\
+                              help="Only select files where this regular expression matches")
+    rename_parser = subparsers.add_parser('rename', help='rename files')
+    rename_parser.add_argument("indir", type=str, default="",
+                               help="Folder with files. Rename all files under this root")
+    rename_parser.add_argument("--from-regex", type=str, default="",\
+                               help="Find files with this regex...")
+    rename_parser.add_argument("--to-fixed-string", type=str, default="",\
+                               help="..and replace it with this string")
+    rename_parser.add_argument("--do-it", default=False,\
+                               help="Really do something. Be sure about it!",\
+                               action="store_true")
+    verification_parser = subparsers.add_parser('verify', help='Verify produced files')
+    verification_parser.add_argument("indir", type=str, default="",
+                                     help="Folder with files. Verify all files under this root")
+    verification_parser.add_argument("--source-regex", type=str, default="", \
+                                     help="Identify source files by this regex")
+    verification_parser.add_argument("--processed-regex", type=str, default="", \
+                                     help="Identify processed files by this regex")
+    verification_parser.add_argument("--look-for-key", type=str, default="", \
+                                     help="Require that a certain key is present in the hdf files")
+    verification_parser.add_argument("--write-filelist", action="store_true", default=False, \
+                                     help="Write a list with filenames which need reprocessing")
+
+    #parser_a.add_argument('bar', type=int, help='bar help')
+
+#    parser.add_argument("-g","--gcd-file",default = "", type=str,help="GCD-    File",required=False,dest="gcd")
+#    parser.add_argument("-i","--infile", type=str,help="Read from file", re    quired=False,dest="infile")
+#    parser.add_argument("--sensor", type=str, help="sensor to use, select f    rom degg, dom, mdom", required=False, dest="sensor", default="degg")
+#    parser.add_argument("-p","--out-prefix", default="", type=str, help="Pr    efix for output files",required=False,dest="outprefix")
+#    parser.add_argument("--out-suffix", default="", type=str, help="Suffix     for output files",required=False,dest="suffix")
+#    parser.add_argument("--dump", default=False, action="store_true", help=    "add the dump module")
+#    parser.add_argument("--keep-mchits", default=False, action="store_true"    )
+#    parser.add_argument("--delete-photons", default=False,dest="delete_phot    ons",\
+#                        action="store_true", help="Delete the photon series     map to save space")
+    
+    args = parser.parse_args()
+
+    if args.commands == "write":
+        # fix the arguments
+        arguments = []
+        for a in args.arguments:
+            k, v = a.split("=")
+            k = k.strip(" ")
+            v = v.strip(" ")
+            v = v.strip("\n")
+            arguments.append("--" + k + "=" + v)
+
+        executable = os.path.abspath(args.executable)
+        submitdir = os.path.abspath(args.submitdir)
+        for p in (executable, submitdir):
+            if not os.path.exists(p):
+                raise ValueError("{} does not exist!".format(p))
+
+        ending = "*"
+        infiles = []
+        if args.input:
+            if not os.path.exists(args.input):
+                raise ValueError("{} does not exist!".format(args.input))
+
+
+            if os.path.isdir(args.input):
+                if args.file_ending:
+                    ending += args.file_ending
+                infiles = glob(os.path.join(args.input, ending))
+            if os.path.isfile(args.input):
+                infiles = []
+                with open(args.input) as f:
+                    for line in f.readlines():
+                        line = line.rstrip("\n")
+                        infiles.append(line)
+
+
+
+        if infiles:
+            for i,f in enumerate(infiles):
+                jobarguments = [f] + arguments
+                jobprops = create_empty_props()
+                jobprops["args"] = jobarguments
+                jobprops["executable"] = executable
+                jobprops["n_jobs"] = args.njobs
+                jobprops["id"] = i
+                write_submit_script(jobprops, submit_dir=submitdir)
+        else:
+            jobprops = create_empty_props()
+            jobprops["arguments"] = arguments
+            jobprops["executable"] = executable
+            jobprops["n_jobs"] = args.njobs
+            jobprops["args"] = arguments
+            write_submit_script(jobprops, submit_dir=submitdir)
+
+    elif args.commands == "count":
+        all_files = walker(args.indir, args.regex)
+        print("Found {} files that match the regex".format(len(all_files), args.regex))
+        if args.verbose:
+            print ("The following files were found:")
+            for i in all_files:
+                print (i)
+
+    elif args.commands == "rename":
+        all_files = walker(args.indir, args.from_regex)
+        renamed_files = []
+        for i in all_files:
+            pattern = re.compile(args.from_regex)
+            thisregex = re.search(pattern, i)
+            substitute = thisregex.group(0)
+            renamed_files.append((i, i.replace(substitute, args.to_fixed_string)))
+
+
+        #renamed_files = [i for i in all_files]
+
+        if args.verbose:
+            if len(renamed_files):
+                print ("The following renamings will be done:")
+            else:
+                print ("Nothing to do!")
+            for i in renamed_files:
+                print (colored("{} -->".format(i[0]), "red") + colored(" {}".format(i[1]),"blue"))
+
+        if args.do_it:
+            for i in renamed_files:
+                shutil.move(i[0], i[1])
+
+    elif args.commands == "verify":
+        print args.indir
+        source_files = walker(args.indir, args.source_regex)
+        processed_files = walker(args.indir, args.processed_regex)
+
+        # build pairs, assume that the processed file contains
+        # the full name of the source file minus the ending
+        #source_files = [strip_file_ending(i)[0] for i in source_files]
+        sorted_processed_files = []
+        missing = []
+        pat = re.compile(r"(?P<name>.+)(?P<ending>\..{2,3})$")
+
+        print ("Gathering information....")
+        for i in source_files:
+            found = False
+            basename = strip_file_ending(i, pat=pat)[0]
+            for j in processed_files:
+                if basename in j:
+                    sorted_processed_files.append((i, j))
+                    found = True
+
+            if not found:
+                missing.append(i)
+        #pbar.currval = 0
+        print ("Found the following associations")
+        for i in sorted_processed_files:
+            print(colored("{} -->".format(i[0]), "red") + colored(" {}".format(i[1]), "blue"))
+
+        if missing:
+            print("Found {} missing files".format(len(missing)))
+
+        # do the verification
+        broken = []
+        hdffiles = [i for i in sorted_processed_files if i[1].endswith("h5")]
+        bz2files = [i for i in sorted_processed_files if i[1].endswith("bz2")]
+        condition = lambda x: x.endswith("h5") or x.endswith("bz2")
+        uncheckable = [i[1] for i in sorted_processed_files if not condition(i[0])]
+        print ("Found {} hdffiles, {} bz2files and {} uncheckable!".format(len(hdffiles),\
+                                                                           len(bz2files),
+                                                                           len(uncheckable)))
+        print ("Checking hdf...")
+        all_good, all_bad= [],[]
+        for i in hdffiles:
+            if args.look_for_key:
+                good, bad = check_hdf_integrity([i[0]], checkfor=args.look_for_key)
+            else:
+                good, bad = check_hdf_integrity([i[0]])
+            all_good += good
+            all_bad += bad
+        pbar.currval = 0
+        print("Fuond {} broken hdf files".format(len(all_bad)))
+        print ("Checking bz2...")
+
+        for i in bz2files:
+            if not check_bz2_integrity(i[1]):
+                broken.append(i[0])
+            else:
+                pass
+        print("Fuond {} broken bz2 files".format(len(broken)))
+
+        broken += all_bad
+        broken += missing
+        broken = list(set(broken))
+        print ("In total there are {} files which need to be reprocessed".format(len(broken)))
+
+        if args.write_filelist:
+            with open("reprocessing.list","w") as f:
+                for i in broken:
+                    f.write(i + "\n")
+    
+                f.close()
+
+
+
+
+
+

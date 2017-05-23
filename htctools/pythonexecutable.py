@@ -2,8 +2,8 @@
 Inspect objects and writes new files which contains object source
 """
 
+import hjson
 import json
-
 from time import ctime
 from os import chmod
 from os.path import split
@@ -20,7 +20,7 @@ class PythonExecutable(file):
 
         path, name        = split(filename)
         name,ending      = strip_file_ending(name)
-        print name, ending, path
+        print (name, ending, path)
         self.filename    = RotatingFileNamer(path, name, ending)
         file.__init__(self,self.filename,"w")
         self.code_buffer = ""
@@ -30,10 +30,10 @@ class PythonExecutable(file):
 #""" %ctime()
         
     def __str__(self):
-        return "<Metascript with filename: %s>" %self.filename
+        return "<PythonExecutable with filename: %s>" %self.filename
     
     def __repr__(self):
-        return "<Metascript with filename: %s>" %self.filename
+        return "<PythonExecutable with filename: %s>" %self.filename
  
     def add_shebang(self, shebang="#! /usr/env/python"):
         """
@@ -53,7 +53,10 @@ class PythonExecutable(file):
         
         import_string = "import %s\n\n" %(module.__name__)
         self.code_buffer += import_string
-    
+
+    def add_verbose_code_line(self, code):
+        self.code_buffer += code + "\n"
+
     def add_variable(self,name,value):
         """
         add a variable and its correspondend value to the script

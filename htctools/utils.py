@@ -8,7 +8,7 @@ import re
 #import tables
 #import os
 #import inspect
-#import bz2
+import bz2
 #import resource
 #import numpy as n
 #import dashi as d
@@ -26,6 +26,15 @@ from os.path import join,split,exists,isdir,isfile
 #
 #from .structs import pdg_to_ptype,ptype_to_pdg
 #
+
+try:
+    from progressbar import ProgressBar
+    pbar = ProgressBar()
+except:
+    pbar = lambda x:x
+
+
+
 #########################################
 #
 #def _getAFSToken():
@@ -38,13 +47,15 @@ from os.path import join,split,exists,isdir,isfile
 
 ########################################
 
-def strip_file_ending(filename):
+def strip_file_ending(filename, pat=None):
     """
     Extract the char-sequance after the dot from a string
     :param filename: string
     :return: string,
     """
-    pat = re.compile(r"(?P<name>.+)(?P<ending>\..{2,3})$")
+    if pat is None:
+        pat = re.compile(r"(?P<name>.+)(?P<ending>\..{2,3})$")
+
     match  = pat.search(filename).groupdict()
     name,ending = match["name"],match["ending"]
     while True:
@@ -60,6 +71,75 @@ def strip_file_ending(filename):
 
 
 ########################################
+
+def check_hdf_integrity(infiles, checkfor=None):
+    """
+    Checks if hdfiles can be openend and returns
+    a tuple integer_files,corrupt_files
+
+    Arguments:
+        infiles (list)
+
+    Keyword arguments:
+        checkfor (str)
+
+
+
+    """
+    import tables
+    import subprocess as sub
+
+    integer_files = []
+    corrupt_files = []
+    allfiles = len(infiles)
+
+    for file_to_check in infiles:
+
+        test = sub.Popen(['h5ls', '-g', file_to_check], stdout=sub.PIPE, stderr=sub.PIPE)
+        __, error = test.communicate()
+
+        if error:
+            #Logger.warning(error)
+            corrupt_files.append(file_to_check)
+
+        else:
+            if checkfor != None:
+                f = tables.openFile(file_to_check)
+                try:
+                    f.getNode(checkfor)
+                except tables.NoSuchNodeError:
+                    #Logger.info("File %s has no Node %s" % (file_to_check, checkfor))
+                    corrupt_files.append(file_to_check)
+                    continue
+                finally:
+                    f.close()
+
+            integer_files.append(file_to_check)
+
+    #Logger.debug("These files are corrupt! %s", corrupt_files.__repr__())
+    #Logger.info('%i of %i files corrupt!' % (len(corrupt_files), allfiles))
+    return integer_files, corrupt_files
+
+################################################
+
+def check_bz2_integrity(filename):
+    """
+    Check if a bzipped file is corrupt
+    """
+
+    fine = False
+    if filename.startswith('dcap://'):
+        filename = filename.replace('dcap://',"")
+    try:
+        bz2.BZ2File(filename).read()
+        fine = True
+    except (IOError, EOFError) as e:
+        pass
+        #Logger.error("%s: File %s corrupt!" %(e,filename))
+    #Logger.info("finish")
+    return fine
+
+##################################################3
 
 #class KeepAlive:
 #    """

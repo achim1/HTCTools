@@ -1,0 +1,9 @@
+six>=1.9.0
+appdirs>=1.4.0
+futures>=3.0.5
+future>=0.16.0
+pyprind>=2.9.6
+hjson>=2.0.2
+
+
+
