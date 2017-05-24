@@ -33,9 +33,34 @@ try:
 except:
     pbar = lambda x:x
 
-
-
 #########################################
+
+def file_walker(indir, regex):
+    """
+    Walk the indir and indentify files by regex.
+
+    Args:
+        indir (str): The directory to search the files with regex
+        regex (str): Filter files by this regex
+
+    Returns:
+        list : Files which match the regex underneath the root indir
+    """
+
+    all_files = []
+    for subdir in os.walk(indir):
+        print (subdir)
+        if not subdir[1]:  # if at the end of the file tree
+            all_files += [os.path.join(subdir[0], i) for i in subdir[2]]
+
+    if regex:
+        pattern = re.compile(regex)
+        all_files = [i for i in all_files if re.search(pattern, i) is not None]
+    return all_files
+
+
+
+
 #
 #def _getAFSToken():
 #    """
