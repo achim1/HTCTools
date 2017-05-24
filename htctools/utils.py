@@ -5,14 +5,14 @@ Job I/O and monitoring tools
 #import subprocess as sub
 #import sys
 import re
-#import tables
-#import os
-#import inspect
+import os
+
 import bz2
 #import resource
 #import numpy as n
 #import dashi as d
-#
+#import tables
+#import inspect
 from os.path import join,split,exists,isdir,isfile
 #from os import walk,sep
 #from glob import glob   
